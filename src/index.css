@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #172033;
+  background: #eef4fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+}
+
+[data-swmm-theme='dark'] .runtime-stat-cell {
+  border-color: #1e293b;
+  background: #020617;
+}
+
+[data-swmm-theme='dark'] .runtime-stat-cell > div:first-child {
+  color: #94a3b8;
+}
+
+[data-swmm-theme='dark'] .runtime-stat-cell > div:last-child {
+  color: #f8fafc;
+}
+
+[data-swmm-theme='dark'] .editor-drawer .editor-summary-card,
+[data-swmm-theme='dark'] .editor-drawer .bg-white,
+[data-swmm-theme='dark'] .editor-drawer .bg-slate-50,
+[data-swmm-theme='dark'] .editor-drawer .bg-blue-50,
+[data-swmm-theme='dark'] .editor-drawer .bg-sky-50 {
+  border-color: #1e293b !important;
+  background: #020617 !important;
+}
+
+[data-swmm-theme='dark'] .editor-drawer input,
+[data-swmm-theme='dark'] .editor-drawer select,
+[data-swmm-theme='dark'] .editor-drawer textarea {
+  border-color: #334155 !important;
+  background: #020617 !important;
+  color: #f8fafc !important;
+}
+
+[data-swmm-theme='dark'] .editor-drawer .text-slate-900,
+[data-swmm-theme='dark'] .editor-drawer .text-slate-800,
+[data-swmm-theme='dark'] .editor-drawer .text-slate-700 {
+  color: #f8fafc !important;
+}
+
+[data-swmm-theme='dark'] .editor-drawer .text-slate-600,
+[data-swmm-theme='dark'] .editor-drawer .text-slate-500,
+[data-swmm-theme='dark'] .editor-drawer .text-slate-400 {
+  color: #94a3b8 !important;
+}
