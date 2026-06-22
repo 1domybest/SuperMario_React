@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 
+/** 같은 프레임 안에 여러 번 들어온 값을 마지막 값 하나로 합쳐 실행하는 RAF scheduler hook이다. */
 export function useRafCoalescedCallback<T>(callback: (value: T) => void) {
   const callbackRef = useRef(callback)
   const frameRef = useRef<number | null>(null)

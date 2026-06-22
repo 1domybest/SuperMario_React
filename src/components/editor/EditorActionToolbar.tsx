@@ -1,5 +1,6 @@
 import type { ChangeEvent, RefObject } from 'react'
 
+/** 편집모드 상단의 확대, undo/redo, JSON/INP 입출력 제어 버튼 묶음이다. */
 export function EditorActionToolbar({
   isDark,
   controlBarClassName,

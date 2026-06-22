@@ -7,6 +7,7 @@ export interface LayoutIndexes {
   relationLinksByNodeId: Map<string, EditorLink[]>
 }
 
+/** layout 배열을 id 기반 Map과 relation lookup으로 변환해 반복 find 비용을 줄인다. */
 export function useLayoutIndexes(layout: EditorLayout): LayoutIndexes {
   return useMemo(() => {
     const nodesById = new Map(layout.nodes.map((node) => [node.id, node]))

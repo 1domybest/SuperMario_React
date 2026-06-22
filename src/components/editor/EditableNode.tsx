@@ -49,6 +49,7 @@ type EditableNodeProps = {
   onResizePointerDown: (node: EditorNode, edge: ResizeEdge, event: ReactPointerEvent<SVGRectElement>) => void
 }
 
+/** EditableNode memo 비교에서 노드의 렌더 영향 필드만 비교한다. */
 function areNodePropsEqual(first: EditorNode, second: EditorNode) {
   if (
     first.id !== second.id ||
@@ -83,6 +84,7 @@ function areNodePropsEqual(first: EditorNode, second: EditorNode) {
   return JSON.stringify(first.props) === JSON.stringify(second.props)
 }
 
+/** relation counterpart 포트 비교 시 필요한 포트 필드만 비교한다. */
 function arePortPropsEqual(first: EditorPort | null, second: EditorPort | null) {
   if (first === second) {
     return true
@@ -98,6 +100,7 @@ function arePortPropsEqual(first: EditorPort | null, second: EditorPort | null) 
   )
 }
 
+/** pending attach 포트가 같은 대상인지 비교한다. */
 function isPendingPortEqual(first: EditorPortSelection | null, second: EditorPortSelection | null) {
   if (first === second) {
     return true
@@ -111,14 +114,17 @@ function isPendingPortEqual(first: EditorPortSelection | null, second: EditorPor
   )
 }
 
+/** 현재 노드가 pending attach 상태와 직접 관련 있는지 확인한다. */
 function nodeHasRelevantPendingPort(nodeId: string, pendingPort: EditorPortSelection | null) {
   return pendingPort?.nodeId === nodeId
 }
 
+/** 노드 포트를 relation/selection lookup에서 쓰는 문자열 key 목록으로 변환한다. */
 function getNodePortKeys(node: EditorNode) {
   return node.ports.map((port) => endpointKey({ nodeId: node.id, portId: port.id }))
 }
 
+/** 지정 key 목록에 대해서 두 Set의 포함 여부가 같은지 비교한다. */
 function haveSameSetValues(first: Set<string>, second: Set<string>, keys: string[]) {
   for (const key of keys) {
     if (first.has(key) !== second.has(key)) {
@@ -129,6 +135,7 @@ function haveSameSetValues(first: Set<string>, second: Set<string>, keys: string
   return true
 }
 
+/** 지정 key 목록에 대해서 두 relation role Map의 값이 같은지 비교한다. */
 function haveSameRoleValues(
   first: Map<string, RelationPortRole>,
   second: Map<string, RelationPortRole>,
@@ -143,6 +150,7 @@ function haveSameRoleValues(
   return true
 }
 
+/** 포트별 relation counterpart lookup이 렌더 관점에서 같은지 비교한다. */
 function haveSameRenderedPortRelationLookup(
   first: RenderedPortRelationLookup,
   second: RenderedPortRelationLookup,
@@ -176,6 +184,7 @@ function haveSameRenderedPortRelationLookup(
   return true
 }
 
+/** EditableNode가 실제로 다시 렌더링되어야 하는지 판단하는 custom memo 비교 함수다. */
 function areEditableNodePropsEqual(previous: EditableNodeProps, next: EditableNodeProps) {
   const previousHasRelevantPendingPort = nodeHasRelevantPendingPort(previous.node.id, previous.pendingPort)
   const nextHasRelevantPendingPort = nodeHasRelevantPendingPort(next.node.id, next.pendingPort)

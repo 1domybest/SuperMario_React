@@ -1437,6 +1437,7 @@ function propagateChildEndpointChanges(
 // 노드 이동, drag, resize helper
 // ---------------------------------------------------------------------------
 /** 노드 ID 목록을 같은 dx/dy만큼 이동하고 relation 전파를 실행한다. */
+/** 지정한 노드 그룹을 같은 delta만큼 이동하고 지상 고정 규칙을 다시 적용한다. */
 function moveNodeIdsBy(layout: EditorLayout, nodeIds: string[], dx: number, dy: number): EditorLayout {
   if (nodeIds.length === 0 || (dx === 0 && dy === 0)) {
     return layout
@@ -1534,36 +1535,135 @@ function resizeBranchNodeToEndpointY(
 }
 
 /** 드래그 중 relation 그룹의 목표 좌표를 계산하고 이동 제약을 적용한다. */
-function moveDragGroupTo(layout: EditorLayout, dragState: DragState, x: number, y: number): EditorLayout {
+function createDragDraftPositions(layout: EditorLayout, dragState: DragState, x: number, y: number): Map<string, Point> {
   const rootOrigin = dragState.originNodes[dragState.nodeId]
   if (!rootOrigin) {
-    return layout
+    return new Map()
   }
 
   const dx = x - rootOrigin.x
   const dy = dragState.hasFixedYNode ? 0 : y - rootOrigin.y
+  const draftPositions = new Map<string, Point>()
+
+  layout.nodes.forEach((node) => {
+    if (!dragState.groupNodeIdSet.has(node.id)) {
+      return
+    }
+
+    const originNode = dragState.originNodes[node.id]
+    if (!originNode) {
+      return
+    }
+
+    const movedNode = {
+      ...node,
+      x: originNode.x + dx,
+      y: originNode.y + dy,
+    }
+    const constrainedNode = dragState.hasFixedYNode ? movedNode : snapNodeToGround(movedNode, layout.groundSurfaceY)
+
+    draftPositions.set(node.id, {
+      x: constrainedNode.x,
+      y: constrainedNode.y,
+    })
+  })
+
+  return draftPositions
+}
+
+/** pointer up 시점에 드래그 preview 좌표를 실제 layout에 한 번만 반영한다. */
+function applyDragDraftPositions(layout: EditorLayout, draftPositions: Map<string, Point>): EditorLayout {
+  if (draftPositions.size === 0) {
+    return layout
+  }
 
   return {
     ...layout,
     nodes: layout.nodes.map((node) => {
-      if (!dragState.groupNodeIdSet.has(node.id)) {
-        return node
-      }
-
-      const originNode = dragState.originNodes[node.id]
-      if (!originNode) {
-        return node
-      }
-
-      const movedNode = {
-        ...node,
-        x: originNode.x + dx,
-        y: originNode.y + dy,
-      }
-
-      return dragState.hasFixedYNode ? movedNode : snapNodeToGround(movedNode, layout.groundSurfaceY)
+      const draftPosition = draftPositions.get(node.id)
+      return draftPosition
+        ? {
+            ...node,
+            x: draftPosition.x,
+            y: draftPosition.y,
+          }
+        : node
     }),
   }
+}
+
+/** draft 비교용으로 렌더링에 영향을 주는 노드 좌표/크기/포트/props가 같은지 확인한다. */
+function haveSameNodeRenderState(first: EditorNode, second: EditorNode) {
+  return (
+    first === second ||
+    (
+      first.id === second.id &&
+      first.x === second.x &&
+      first.y === second.y &&
+      first.width === second.width &&
+      first.height === second.height &&
+      JSON.stringify(first.ports) === JSON.stringify(second.ports) &&
+      JSON.stringify(first.props) === JSON.stringify(second.props)
+    )
+  )
+}
+
+/** resize 중 화면 preview에 필요한 변경 노드만 Map으로 추려낸다. */
+function createResizeDraftNodes(
+  layout: EditorLayout,
+  resizeState: ResizeState,
+  cursor: Point,
+): Map<string, EditorNode> {
+  const resizedLayout = resizeLayoutFromState(layout, resizeState, cursor)
+  const originalNodesById = new Map(layout.nodes.map((node) => [node.id, node]))
+  const draftNodesById = new Map<string, EditorNode>()
+
+  resizedLayout.nodes.forEach((node) => {
+    const originalNode = originalNodesById.get(node.id)
+    if (!originalNode || !haveSameNodeRenderState(originalNode, node)) {
+      draftNodesById.set(node.id, node)
+    }
+  })
+
+  return draftNodesById
+}
+
+/** pointer up 시점에 resize draft 노드들을 실제 layout에 한 번만 반영한다. */
+function applyResizeDraftNodes(layout: EditorLayout, draftNodesById: Map<string, EditorNode>): EditorLayout {
+  if (draftNodesById.size === 0) {
+    return layout
+  }
+
+  return {
+    ...layout,
+    nodes: layout.nodes.map((node) => draftNodesById.get(node.id) ?? node),
+  }
+}
+
+/** drag/resize draft 때문에 포트 relation lookup을 다시 계산해야 하는 노드 범위를 구한다. */
+function getDraftAffectedNodeIds(
+  dragDraftPositionsByNodeId: Map<string, Point> | null,
+  resizeDraftNodesById: Map<string, EditorNode> | null,
+  relationLinksByNodeId: Map<string, EditorLink[]>,
+) {
+  const affectedNodeIds = new Set<string>()
+
+  const addNodeAndRelationCounterparts = (nodeId: string) => {
+    affectedNodeIds.add(nodeId)
+    relationLinksByNodeId.get(nodeId)?.forEach((relation) => {
+      affectedNodeIds.add(relation.from.nodeId)
+      affectedNodeIds.add(relation.to.nodeId)
+    })
+  }
+
+  dragDraftPositionsByNodeId?.forEach((_position, nodeId) => {
+    addNodeAndRelationCounterparts(nodeId)
+  })
+  resizeDraftNodesById?.forEach((_node, nodeId) => {
+    addNodeAndRelationCounterparts(nodeId)
+  })
+
+  return affectedNodeIds
 }
 
 /** 커서 위치 기준으로 노드의 특정 edge를 직접 resize한다. */
@@ -2581,6 +2681,7 @@ function parseWarningHeader(value: string | null): string[] {
   }
 }
 
+/** 현재 layout을 서버에 전달해 SWMM INP 텍스트로 변환한 뒤 다운로드한다. */
 async function downloadSwmmInp(layout: EditorLayout) {
   const exportLayout = normalizeRelationAttachments(layout)
   const response = await fetch(`${SWMM_ENGINE_URL}/editor/export-inp`, {
@@ -2608,6 +2709,7 @@ async function downloadSwmmInp(layout: EditorLayout) {
 }
 
 
+/** 배수도 편집 화면의 상태 연결, 편집 이벤트, SVG 렌더 조립을 담당하는 최상위 컴포넌트다. */
 export function EditorCanvas({
   theme = 'light',
   renderHeader,
@@ -2638,8 +2740,9 @@ export function EditorCanvas({
   const [attachTargetNodeId, setAttachTargetNodeId] = useState<string | null>(null)
   const [coordinateEditState, setCoordinateEditState] = useState<CoordinateEditState | null>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
-  const [dragPreviewLayout, setDragPreviewLayout] = useState<EditorLayout | null>(null)
+  const [dragDraftPositionsByNodeId, setDragDraftPositionsByNodeId] = useState<Map<string, Point> | null>(null)
   const [resizeState, setResizeState] = useState<ResizeState | null>(null)
+  const [resizeDraftNodesById, setResizeDraftNodesById] = useState<Map<string, EditorNode> | null>(null)
   const [marqueeSelectionState, setMarqueeSelectionState] = useState<MarqueeSelectionState | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [isExportingInp, setIsExportingInp] = useState(false)
@@ -2665,8 +2768,32 @@ export function EditorCanvas({
   const suppressCoordinateEditFollowUpClickUntilRef = useRef(0)
   const nextNodeIndex = layout.nodes.length + 1
   const isScenarioReadOnly = Boolean(selectedScenario && !isScenarioEditMode)
-  const renderLayout = dragPreviewLayout ?? layout
-  const { nodesById, linksById, relationLinksByNodeId } = useLayoutIndexes(renderLayout)
+  const { nodesById, linksById, relationLinksByNodeId } = useLayoutIndexes(layout)
+  const renderNodesById = useMemo(() => {
+    if (
+      (!dragDraftPositionsByNodeId || dragDraftPositionsByNodeId.size === 0) &&
+      (!resizeDraftNodesById || resizeDraftNodesById.size === 0)
+    ) {
+      return nodesById
+    }
+
+    const draftNodesById = new Map(nodesById)
+    resizeDraftNodesById?.forEach((node, nodeId) => {
+      draftNodesById.set(nodeId, node)
+    })
+    dragDraftPositionsByNodeId?.forEach((position, nodeId) => {
+      const node = nodesById.get(nodeId)
+      if (node) {
+        draftNodesById.set(nodeId, {
+          ...node,
+          x: position.x,
+          y: position.y,
+        })
+      }
+    })
+
+    return draftNodesById
+  }, [dragDraftPositionsByNodeId, nodesById, resizeDraftNodesById])
 
   useEffect(() => {
     const element = editorCanvasViewportRef.current
@@ -2697,7 +2824,9 @@ export function EditorCanvas({
     setCoordinateEditState(null)
     setContextMenu(null)
     setDragState(null)
+    setDragDraftPositionsByNodeId(null)
     setResizeState(null)
+    setResizeDraftNodesById(null)
     setMarqueeSelectionState(null)
   }, [])
 
@@ -3032,7 +3161,7 @@ export function EditorCanvas({
   }, [layout.links, selectedNode])
 
   // terrain/road 같은 레이어, 사용자가 지정한 zOrder, relation depth 순서로 실제 렌더 순서를 정한다.
-  const renderedNodes = useMemo(() => createRenderedNodes(renderLayout), [renderLayout])
+  const renderedNodes = useMemo(() => createRenderedNodes(layout), [layout])
   const terrainNodes = useMemo(
     () => renderedNodes.filter((node) => node.type === 'terrain'),
     [renderedNodes],
@@ -3041,7 +3170,7 @@ export function EditorCanvas({
     () => renderedNodes.filter((node) => node.type !== 'terrain'),
     [renderedNodes],
   )
-  const renderedPortRelationLookupByNodeId = useMemo(() => {
+  const baseRenderedPortRelationLookupByNodeId = useMemo(() => {
     const lookupByNodeId = new Map<string, RenderedPortRelationLookup>()
 
     renderedNodes.forEach((node) => {
@@ -3057,6 +3186,44 @@ export function EditorCanvas({
 
     return lookupByNodeId
   }, [nodesById, relationLinksByNodeId, renderedNodes])
+  const draftAffectedNodeIds = useMemo(
+    () => getDraftAffectedNodeIds(
+      dragDraftPositionsByNodeId,
+      resizeDraftNodesById,
+      relationLinksByNodeId,
+    ),
+    [dragDraftPositionsByNodeId, relationLinksByNodeId, resizeDraftNodesById],
+  )
+  const renderedPortRelationLookupByNodeId = useMemo(() => {
+    if (draftAffectedNodeIds.size === 0) {
+      return baseRenderedPortRelationLookupByNodeId
+    }
+
+    const lookupByNodeId = new Map(baseRenderedPortRelationLookupByNodeId)
+
+    draftAffectedNodeIds.forEach((nodeId) => {
+      const node = renderNodesById.get(nodeId)
+      if (!node) {
+        return
+      }
+
+      lookupByNodeId.set(
+        nodeId,
+        createRenderedPortRelationLookup(
+          node,
+          relationLinksByNodeId.get(nodeId) ?? [],
+          renderNodesById,
+        ),
+      )
+    })
+
+    return lookupByNodeId
+  }, [
+    baseRenderedPortRelationLookupByNodeId,
+    draftAffectedNodeIds,
+    relationLinksByNodeId,
+    renderNodesById,
+  ])
 
   // 좌표 변경 모드의 커서 모양을 x/y 축에 맞춰 바꾸기 위한 파생 상태다.
   const coordinateEditAxis = useMemo(() => {
@@ -3288,7 +3455,9 @@ export function EditorCanvas({
     setCoordinateEditState(null)
     setContextMenu(null)
     setDragState(null)
+    setDragDraftPositionsByNodeId(null)
     setResizeState(null)
+    setResizeDraftNodesById(null)
     setMarqueeSelectionState(null)
     commitLayoutHistoryBatch()
   }, [commitLayoutHistoryBatch])
@@ -3344,7 +3513,9 @@ export function EditorCanvas({
     setCoordinateEditState(null)
     setContextMenu(null)
     setDragState(null)
+    setDragDraftPositionsByNodeId(null)
     setResizeState(null)
+    setResizeDraftNodesById(null)
     setMarqueeSelectionState(null)
     setSelection(pastedNodeIds.length === 1
       ? { kind: 'node', id: pastedNodeIds[0] }
@@ -3708,10 +3879,7 @@ export function EditorCanvas({
     if (resizeState) {
       const resizeCursor = getResizeEdgeCursor(resizeState, cursor)
 
-      setLayout(
-        (currentLayout) => resizeLayoutFromState(currentLayout, resizeState, resizeCursor),
-        { recordHistory: false },
-      )
+      setResizeDraftNodesById(createResizeDraftNodes(layout, resizeState, resizeCursor))
       return
     }
 
@@ -3719,19 +3887,16 @@ export function EditorCanvas({
       return
     }
 
-    setLayout(
-      (currentLayout) => (
-        moveDragGroupTo(currentLayout, dragState, cursor.x - dragState.offsetX, cursor.y - dragState.offsetY)
-      ),
-      { recordHistory: false },
+    setDragDraftPositionsByNodeId(
+      createDragDraftPositions(layout, dragState, cursor.x - dragState.offsetX, cursor.y - dragState.offsetY),
     )
   }, [
     coordinateEditState,
     dragState,
     isScenarioReadOnly,
+    layout,
     marqueeSelectionState,
     resizeState,
-    setLayout,
     updateCoordinateEditFromClientPoint,
   ])
 
@@ -3765,22 +3930,43 @@ export function EditorCanvas({
           : { kind: 'multi', ids: selectedIds })
       setMarqueeSelectionState(null)
       setDragState(null)
+      setDragDraftPositionsByNodeId(null)
       setResizeState(null)
+      setResizeDraftNodesById(null)
       commitLayoutHistoryBatch()
       return
     }
 
+    if (dragState && dragDraftPositionsByNodeId) {
+      setLayout((currentLayout) => applyDragDraftPositions(currentLayout, dragDraftPositionsByNodeId), {
+        recordHistory: false,
+      })
+    }
+
+    if (resizeState && resizeDraftNodesById) {
+      setLayout((currentLayout) => applyResizeDraftNodes(currentLayout, resizeDraftNodesById), {
+        recordHistory: false,
+      })
+    }
+
     setCoordinateEditState(null)
     setDragState(null)
+    setDragDraftPositionsByNodeId(null)
     setResizeState(null)
+    setResizeDraftNodesById(null)
     setMarqueeSelectionState(null)
     commitLayoutHistoryBatch()
   }, [
     cancelCanvasPointerMove,
     commitLayoutHistoryBatch,
     coordinateEditState,
+    dragDraftPositionsByNodeId,
+    dragState,
     layout,
     marqueeSelectionState,
+    resizeDraftNodesById,
+    resizeState,
+    setLayout,
     suppressCoordinateEditFollowUpClick,
   ])
 
@@ -3880,7 +4066,9 @@ export function EditorCanvas({
       suppressCoordinateEditFollowUpClick()
       updateCoordinateEditFromClientPoint(event.clientX, event.clientY)
       setDragState(null)
+      setDragDraftPositionsByNodeId(null)
       setResizeState(null)
+      setResizeDraftNodesById(null)
       return
     }
 
@@ -3898,11 +4086,15 @@ export function EditorCanvas({
 
       setAttachTargetNodeId(node.id)
       setDragState(null)
+      setDragDraftPositionsByNodeId(null)
       setResizeState(null)
+      setResizeDraftNodesById(null)
       return
     }
 
     beginLayoutHistoryBatch()
+    setDragDraftPositionsByNodeId(null)
+    setResizeDraftNodesById(null)
 
     const groupNodeIds = shouldDragCurrentMultiSelection
       ? selection.ids
@@ -3951,7 +4143,9 @@ export function EditorCanvas({
       setSelection({ kind: 'node', id: node.id })
       setAttachTargetNodeId(node.id)
       setDragState(null)
+      setDragDraftPositionsByNodeId(null)
       setResizeState(null)
+      setResizeDraftNodesById(null)
       return
     }
 
@@ -3973,6 +4167,8 @@ export function EditorCanvas({
     const hasFixedYNode = layout.nodes.some((candidate) => groupNodeIdSet.has(candidate.id) && isFixedYNode(candidate))
     setSelection({ kind: 'node', id: node.id })
     setDragState(null)
+    setDragDraftPositionsByNodeId(null)
+    setResizeDraftNodesById(null)
     beginLayoutHistoryBatch()
     setResizeState({
       nodeId: node.id,
@@ -4454,6 +4650,7 @@ export function EditorCanvas({
 
             <EditableNodeLayer
               nodes={terrainNodes}
+              renderNodesById={renderNodesById}
               selectedNodeIds={selectedNodeIds}
               renderedPortRelationLookupByNodeId={renderedPortRelationLookupByNodeId}
               connectedPortKeys={connectedPortKeys}
@@ -4474,14 +4671,18 @@ export function EditorCanvas({
               onResizePointerDown={handlePipeResizePointerDown}
             />
             <g>
-              {terrainNodes.map((node) => (
-                <g key={`${node.id}-layout-add-handles`} transform={`translate(${node.x} ${node.y})`}>
-                  <LayoutAddHandles
-                    bounds={{ left: 0, top: 0, right: node.width, bottom: node.height }}
-                    onPointerDown={(side, event) => handleNodeLayoutAddPointerDown(node, side, event)}
-                  />
-                </g>
-              ))}
+              {terrainNodes.map((node) => {
+                const renderNode = renderNodesById.get(node.id) ?? node
+
+                return (
+                  <g key={`${node.id}-layout-add-handles`} transform={`translate(${renderNode.x} ${renderNode.y})`}>
+                    <LayoutAddHandles
+                      bounds={{ left: 0, top: 0, right: renderNode.width, bottom: renderNode.height }}
+                      onPointerDown={(side, event) => handleNodeLayoutAddPointerDown(renderNode, side, event)}
+                    />
+                  </g>
+                )
+              })}
               <LayoutAddHandles
                 bounds={baseGroundBounds}
                 onPointerDown={handleBaseLayoutAddPointerDown}
@@ -4493,8 +4694,8 @@ export function EditorCanvas({
                 <EditableLink
                   key={link.id}
                   link={link}
-                  fromNode={nodesById.get(link.from.nodeId) ?? null}
-                  toNode={nodesById.get(link.to.nodeId) ?? null}
+                  fromNode={renderNodesById.get(link.from.nodeId) ?? null}
+                  toNode={renderNodesById.get(link.to.nodeId) ?? null}
                   selected={selection?.kind === 'link' && selection.id === link.id}
                   onSelect={handleLinkSelect}
                 />
@@ -4503,6 +4704,7 @@ export function EditorCanvas({
 
             <EditableNodeLayer
               nodes={drawableNodes}
+              renderNodesById={renderNodesById}
               selectedNodeIds={selectedNodeIds}
               renderedPortRelationLookupByNodeId={renderedPortRelationLookupByNodeId}
               connectedPortKeys={connectedPortKeys}

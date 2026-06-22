@@ -27,10 +27,12 @@ export type EditorLinkRenderItem = {
   arrowSize: number | null
 }
 
+/** endpoint가 참조하는 포트를 이미 알고 있는 노드 객체 안에서 찾는다. */
 function getEndpointPortFromNode(node: EditorNode | null | undefined, endpoint: EditorEndpoint): EditorPort | null {
   return node ? getNodePort(node, endpoint.portId) : null
 }
 
+/** endpoint 포트 좌표를 찾고, 포트가 없으면 노드 중심 좌표를 fallback으로 사용한다. */
 function getEndpointPointFromNode(node: EditorNode | null | undefined, endpoint: EditorEndpoint): Point | null {
   const port = getEndpointPortFromNode(node, endpoint)
   if (!node || !port) {
@@ -45,6 +47,7 @@ function getEndpointPointFromNode(node: EditorNode | null | undefined, endpoint:
   return getPortPoint(node, port)
 }
 
+/** relation endpoint 좌표를 반대편 노드/포트 방향에 맞춰 attach 보정한 값으로 계산한다. */
 function getEndpointPointWithCounterpartFromNodes(
   node: EditorNode | null | undefined,
   endpoint: EditorEndpoint,
@@ -65,6 +68,7 @@ function getEndpointPointWithCounterpartFromNodes(
   return getAttachedPortPoint(node, port, counterpartNode, counterpartPort)
 }
 
+/** 일반 link와 relation link의 endpoint 좌표 계산을 노드 객체 기반으로 통합한다. */
 function getLinkEndpointPointFromNodes(
   link: EditorLink,
   endpointName: 'from' | 'to',
@@ -80,6 +84,7 @@ function getLinkEndpointPointFromNodes(
     : getEndpointPointWithCounterpartFromNodes(toNode, link.to, fromNode, link.from)
 }
 
+/** 계산된 시작/끝 좌표를 직선 또는 꺾은 SVG path로 변환한다. */
 function getLinkPathForPointsFromNodes(
   link: EditorLink,
   start: Point,
@@ -117,6 +122,7 @@ function getRelationArrowSize(layout: EditorLayout, link: EditorLink, start: Poi
   return clampNumber(Math.min(distanceSize, childSize), RELATION_ARROW_MIN_SIZE, RELATION_ARROW_MAX_SIZE)
 }
 
+/** 이미 조회된 child 노드를 사용해 relation 방향 화살표 크기를 계산한다. */
 function getRelationArrowSizeFromNodes(link: EditorLink, toNode: EditorNode | null | undefined, start: Point, end: Point) {
   const childPort = toNode ? getEndpointPortFromNode(toNode, link.to) : null
   const childSpan = toNode && childPort

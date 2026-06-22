@@ -10,6 +10,7 @@ import type { EditorNodeType } from './editorTypes'
 
 export type ContextNodeZOrderAction = 'bringForward' | 'sendBackward' | 'bringToFront' | 'sendToBack'
 
+/** 캔버스/노드/relation/지형 추가 상황에 맞는 우클릭 편집 메뉴를 렌더링한다. */
 export function EditorContextMenu({
   contextMenu,
   canStartCoordinateEdit,

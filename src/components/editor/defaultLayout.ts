@@ -31,6 +31,7 @@ export const EDITOR_NODE_PRESETS: Record<EditorNodeType, { name: string; width: 
   terrain: { name: '땅', width: 560, height: 300, yOffset: -360 },
 }
 
+/** 노드 유형별 기본 포트 목록을 만든다. */
 export function createEditorPorts(type: EditorNodeType, _width: number, height: number): EditorPort[] {
   if (type === 'road' || type === 'terrain') {
     return []
@@ -66,10 +67,12 @@ export function createEditorPorts(type: EditorNodeType, _width: number, height: 
   return STANDARD_PORTS.map((port) => ({ ...port }))
 }
 
+/** 파일에 포함된 기본 배수도 JSON을 새 객체로 복제해 반환한다. */
 export function createDefaultEditorLayout(): EditorLayout {
   return structuredClone(defaultDrainageLayout) as EditorLayout
 }
 
+/** 우클릭 추가 메뉴에서 사용할 새 편집 노드를 기본 크기/위치/props로 생성한다. */
 export function createEditorNode(type: EditorNodeType, index: number, groundSurfaceY: number): EditorNode {
   const preset = EDITOR_NODE_PRESETS[type]
   const id = `${type}_${Date.now()}_${index}`

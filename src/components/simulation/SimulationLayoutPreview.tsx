@@ -45,6 +45,7 @@ interface SimulationLayoutPreviewProps {
 }
 
 type RuntimeObjectState = SwmmRealtimeSnapshot['editorObjects'][string]
+type RuntimeEditorObjects = SwmmRealtimeSnapshot['editorObjects']
 
 interface ViewBounds {
   minX: number
@@ -83,6 +84,7 @@ const WATER_TYPE_LEGEND = PIPE_KIND_DEFINITIONS.map((definition) => ({
   border: getPipePalette(definition.id).stroke,
 }))
 
+/** runtime 비율 값을 0~1 범위로 보정하고 잘못된 값은 0으로 처리한다. */
 function clamp01(value: number | undefined) {
   if (value === undefined || !Number.isFinite(value)) {
     return 0
@@ -91,14 +93,17 @@ function clamp01(value: number | undefined) {
   return Math.max(0, Math.min(1, value))
 }
 
+/** 전체화면 확대 배율이 최소값보다 작아지지 않도록 제한한다. */
 function clampFullscreenZoom(value: number) {
   return Math.max(FULLSCREEN_ZOOM_MIN, value)
 }
 
+/** SVG clipPath/filter id로 안전하게 사용할 수 있는 문자열로 변환한다. */
 function safeSvgId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_')
 }
 
+/** 관 만관율과 노드 수위율 중 화면에 더 위험하게 보이는 값을 runtime 채움 비율로 사용한다. */
 function getRuntimeFillRatio(state: RuntimeObjectState | undefined) {
   return Math.max(
     clamp01(state?.maxFullness),
@@ -106,6 +111,7 @@ function getRuntimeFillRatio(state: RuntimeObjectState | undefined) {
   )
 }
 
+/** 채움 비율을 색상 경고 단계로 변환한다. */
 function getFillRiskLevel(ratio: number) {
   const percent = clamp01(ratio) * 100
   if (percent >= 80) return 4
@@ -115,6 +121,7 @@ function getFillRiskLevel(ratio: number) {
   return 0
 }
 
+/** 위험도에 따라 기본 물 색상을 경고색으로 덮어쓴다. */
 function getRiskFillColor(baseFill: string, ratio: number) {
   const level = getFillRiskLevel(ratio)
   if (level >= 4) return 'rgba(239,68,68,.72)'
@@ -124,6 +131,7 @@ function getRiskFillColor(baseFill: string, ratio: number) {
   return baseFill
 }
 
+/** 위험도에 따라 outline에 사용할 경고 stroke 색상을 반환한다. */
 function getRiskStrokeColor(ratio: number) {
   const level = getFillRiskLevel(ratio)
   if (level >= 4) return '#ef4444'
@@ -133,18 +141,22 @@ function getRiskStrokeColor(ratio: number) {
   return null
 }
 
+/** SWMM runtime state에서 화면에 표시할 침수량이 있는지 확인한다. */
 function hasFlooding(state: RuntimeObjectState | undefined) {
   return Math.abs(state?.maxFloodingCms ?? 0) > FLOOD_WARNING_CMS_THRESHOLD
 }
 
+/** 침수 경고 표시를 붙일 수 있는 노드 유형인지 확인한다. */
 function canShowFlooding(node: EditorNode) {
   return node.type === 'manhole' || node.type === 'catchBasin'
 }
 
+/** 노드 유형과 runtime 침수량을 함께 보고 실제 침수 표시 여부를 결정한다. */
 function hasVisibleFlooding(node: EditorNode, state: RuntimeObjectState | undefined) {
   return canShowFlooding(node) && hasFlooding(state)
 }
 
+/** 맨홀은 노드 수위가 낮아도 연결 관 만관율이 있으면 최소 채움 표시를 보정한다. */
 function getManholeVisibleFillRatio(state: RuntimeObjectState | undefined) {
   const nodeDepthRatio = clamp01(state?.maxDepthRatio)
   const connectedPipeRatio = clamp01(state?.maxFullness)
@@ -160,6 +172,7 @@ function getManholeVisibleFillRatio(state: RuntimeObjectState | undefined) {
   return 0
 }
 
+/** runtime badge에 표시할 노드별 대표 비율을 계산한다. */
 function getNodeBadgeRatio(node: EditorNode, state: RuntimeObjectState | undefined) {
   if (node.type === 'manhole') {
     return getManholeVisibleFillRatio(state)
@@ -168,6 +181,7 @@ function getNodeBadgeRatio(node: EditorNode, state: RuntimeObjectState | undefin
   return getRuntimeFillRatio(state)
 }
 
+/** badge에 표시할 비율을 작은 값까지 읽기 쉬운 퍼센트 문자열로 포맷한다. */
 function formatBadgePercent(ratio: number) {
   const percent = clamp01(ratio) * 100
   if (percent <= 0) {
@@ -182,6 +196,7 @@ function formatBadgePercent(ratio: number) {
   return `${Math.round(percent)}%`
 }
 
+/** 흐름, 유입, 수위 중 하나라도 움직임이 있으면 animation 최소 표시 대상으로 본다. */
 function hasRuntimeActivity(state: RuntimeObjectState | undefined) {
   if (!state) {
     return false
@@ -192,6 +207,7 @@ function hasRuntimeActivity(state: RuntimeObjectState | undefined) {
     || Math.abs(state.totalInflowCms ?? 0) > FLOW_ACTIVE_CMS_THRESHOLD
 }
 
+/** 실제 비율이 너무 작아도 활동이 있으면 화면에서 보이는 최소 채움 높이를 준다. */
 function getVisibleFillRatio(state: RuntimeObjectState | undefined, minimum = 0.06) {
   const ratio = getRuntimeFillRatio(state)
   if (ratio > 0.01) {
@@ -201,14 +217,17 @@ function getVisibleFillRatio(state: RuntimeObjectState | undefined, minimum = 0.
   return hasRuntimeActivity(state) ? minimum : 0
 }
 
+/** 시뮬레이션 속도 배율에 맞춰 SVG animation 지속 시간을 계산한다. */
 function animationDuration(baseSeconds: number, speedMultiplier: number) {
   return Math.max(0.12, baseSeconds / Math.max(1, speedMultiplier))
 }
 
+/** 커넥터 계열 노드인지 확인해 badge/outline 표시 예외 처리에 사용한다. */
 function isConnectorNode(node: EditorNode) {
   return node.type === 'connector' || node.type === 'elbowConnector' || node.type === 'teeConnector'
 }
 
+/** velocity가 없을 때 flow/inflow/fill 값을 fallback으로 사용해 animation 속도를 추정한다. */
 function getRuntimeFlowSpeed(state: RuntimeObjectState | undefined) {
   const velocity = Math.abs(state?.maxVelocityMps ?? 0)
   const flowFallback = Math.min(3, Math.abs(state?.flowCms ?? 0) * 12)
@@ -217,6 +236,7 @@ function getRuntimeFlowSpeed(state: RuntimeObjectState | undefined) {
   return Math.max(velocity, flowFallback, inflowFallback, fillFallback)
 }
 
+/** runtime 흐름 상태를 화살표 방향, 투명도, animation 속도 설정으로 변환한다. */
 function getFlowAnimationConfig(state: RuntimeObjectState | undefined) {
   const flowCms = state?.flowCms ?? 0
   const totalInflowCms = state?.totalInflowCms ?? 0
@@ -236,6 +256,45 @@ function getFlowAnimationConfig(state: RuntimeObjectState | undefined) {
   }
 }
 
+/** 파이프 내부 흐름 화살표의 고정 좌표/시작 시간을 생성한다. */
+function createPipeFlowArrowItems(
+  orientation: ReturnType<typeof getNodeOrientation>,
+  nodeWidth: number,
+  nodeHeight: number,
+  arrowCount: number,
+) {
+  return Array.from({ length: arrowCount }, (_, index) => {
+    const offset = -FLOW_ARROW_SPACING + index * FLOW_ARROW_SPACING
+
+    return {
+      index,
+      x: orientation === 'horizontal' ? offset : nodeWidth / 2,
+      y: orientation === 'horizontal' ? nodeHeight / 2 : offset,
+      beginSeconds: index * 0.07,
+    }
+  })
+}
+
+/** 캔버스 bounds 기준으로 재사용 가능한 빗방울 좌표 배열을 만든다. */
+function createRainDropItems(bounds: ViewBounds, groundSurfaceY: number) {
+  const dropCount = Math.min(72, Math.max(10, Math.floor(bounds.width / 76)))
+  const topY = bounds.minY + 20
+  const fallDistance = Math.max(140, groundSurfaceY - topY + 80)
+
+  return {
+    fallDistance,
+    drops: Array.from({ length: dropCount }, (_, index) => ({
+      index,
+      x: bounds.minX + ((index * 61) % Math.max(1, bounds.width)),
+      y: topY + ((index * 37) % 180),
+      length: 24 + (index % 3) * 7,
+      durationBaseSeconds: 1.15 + (index % 7) * 0.08,
+      beginSeconds: (index % 11) * 0.1,
+    })),
+  }
+}
+
+/** 시뮬레이션 SVG에서 노드 유형별 렌더링 레이어 순서를 반환한다. */
 function getNodeLayer(node: EditorNode) {
   if (node.type === 'terrain') {
     return 0
@@ -260,11 +319,13 @@ function getNodeLayer(node: EditorNode) {
   return 5
 }
 
+/** 사용자 편집 zOrder 값을 숫자로 안전하게 읽는다. */
 function getNodeZOrder(node: EditorNode) {
   const zOrder = Number(node.props.zOrder ?? 0)
   return Number.isFinite(zOrder) ? zOrder : 0
 }
 
+/** 좌측으로 연장 표시가 필요한 본관/간선/차집 계열 파이프인지 판정한다. */
 function isMainUpstreamPipe(node: EditorNode) {
   if (node.type !== 'pipeSegment' || getNodeOrientation(node) !== 'horizontal') {
     return false
@@ -274,24 +335,41 @@ function isMainUpstreamPipe(node: EditorNode) {
   return /본관|간선|차집|main|trunk|interceptor/.test(text)
 }
 
-function hasLeftEndpointRelation(layout: EditorLayout, node: EditorNode) {
-  return layout.links.some((link) => (
-    link.type === 'relation'
-    && (
-      (link.from.nodeId === node.id && link.from.portId === 'left')
-      || (link.to.nodeId === node.id && link.to.portId === 'left')
-    )
-  ))
+/** 노드 배열을 id lookup Map으로 변환해 relation endpoint 조회 비용을 줄인다. */
+function createNodesById(nodes: EditorNode[]) {
+  return new Map(nodes.map((node) => [node.id, node]))
 }
 
-function shouldRenderUpstreamExtension(layout: EditorLayout, node: EditorNode, bounds: ViewBounds) {
-  if (!isMainUpstreamPipe(node) || hasLeftEndpointRelation(layout, node)) {
+/** left 포트에 relation이 붙은 노드 ID를 모아 upstream 연장 표시 여부 판단에 사용한다. */
+function createLeftEndpointRelationNodeIds(links: EditorLink[]) {
+  const nodeIds = new Set<string>()
+
+  links.forEach((link) => {
+    if (link.type !== 'relation') {
+      return
+    }
+
+    if (link.from.portId === 'left') {
+      nodeIds.add(link.from.nodeId)
+    }
+    if (link.to.portId === 'left') {
+      nodeIds.add(link.to.nodeId)
+    }
+  })
+
+  return nodeIds
+}
+
+/** 화면 왼쪽 경계 밖으로 이어지는 upstream 파이프 연장선을 그릴지 결정한다. */
+function shouldRenderUpstreamExtension(node: EditorNode, bounds: ViewBounds, hasLeftEndpointRelation: boolean) {
+  if (!isMainUpstreamPipe(node) || hasLeftEndpointRelation) {
     return false
   }
 
   return node.x - bounds.minX > 12
 }
 
+/** 모든 노드를 포함하는 SVG viewBox bounds를 여백과 최소 높이 기준으로 계산한다. */
 function computeViewBounds(layout: EditorLayout): ViewBounds {
   if (layout.nodes.length === 0) {
     return {
@@ -323,8 +401,12 @@ function computeViewBounds(layout: EditorLayout): ViewBounds {
   }
 }
 
-function getEndpointPoint(layout: EditorLayout, endpoint: EditorEndpoint, counterpart?: EditorEndpoint) {
-  const node = layout.nodes.find((candidate) => candidate.id === endpoint.nodeId)
+function getEndpointPoint(
+  nodesById: Map<string, EditorNode>,
+  endpoint: EditorEndpoint,
+  counterpart?: EditorEndpoint,
+) {
+  const node = nodesById.get(endpoint.nodeId)
   if (!node) {
     return null
   }
@@ -337,7 +419,7 @@ function getEndpointPoint(layout: EditorLayout, endpoint: EditorEndpoint, counte
     }
   }
 
-  const counterpartNode = counterpart ? layout.nodes.find((candidate) => candidate.id === counterpart.nodeId) : null
+  const counterpartNode = counterpart ? nodesById.get(counterpart.nodeId) ?? null : null
   const counterpartPort = counterpartNode && counterpart ? getNodePort(counterpartNode, counterpart.portId) : null
   return getAttachedPortPoint(node, port, counterpartNode, counterpartPort)
 }
@@ -346,10 +428,16 @@ function getSelectedEditorId(selectedBlockageId: string, blockageTargets: Simula
   return blockageTargets.find((target) => target.swmmLinkId === selectedBlockageId)?.sourceEditorId ?? ''
 }
 
-function getTargetForNode(nodeId: string, blockageTargets: SimulationBlockageTarget[]) {
-  return blockageTargets.find((target) => target.sourceEditorId === nodeId)
+/** 막힘 제어 대상 목록을 editor object id 기준 lookup으로 변환한다. */
+function createBlockageTargetByEditorId(blockageTargets: SimulationBlockageTarget[]) {
+  return new Map(
+    blockageTargets
+      .filter((target) => target.sourceEditorId)
+      .map((target) => [target.sourceEditorId as string, target]),
+  )
 }
 
+/** 물결/침수 효과에 사용할 반복 cubic SVG path를 만든다. */
 function makeWavePath(x: number, y: number, width: number, amplitude: number, wavelength: number) {
   const startX = x - wavelength * 2
   const endX = x + width + wavelength * 2
@@ -364,7 +452,8 @@ function makeWavePath(x: number, y: number, width: number, amplitude: number, wa
   return path
 }
 
-function WaterFillRect({
+/** runtime 비율에 따라 사각 영역 내부에 물 채움과 흐름 물결을 렌더링한다. */
+const WaterFillRect = memo(function WaterFillRect({
   id,
   x,
   y,
@@ -388,6 +477,12 @@ function WaterFillRect({
   const fillRatio = clamp01(ratio)
   const waterHeight = height * fillRatio
   const waterY = y + height - waterHeight
+  const waveAmplitude = Math.max(2, Math.min(8, height * 0.08))
+  const waveStrokeWidth = Math.max(2, Math.min(6, height * 0.08))
+  const wavePath = useMemo(
+    () => makeWavePath(x, waterY, width, waveAmplitude, 54),
+    [waterY, waveAmplitude, width, x],
+  )
 
   if (fillRatio <= 0.001 || width <= 0 || height <= 0) {
     return null
@@ -398,10 +493,10 @@ function WaterFillRect({
       <rect x={x} y={waterY} width={width} height={waterHeight} fill={fill} opacity="0.82">
       </rect>
       <path
-        d={makeWavePath(x, waterY, width, Math.max(2, Math.min(8, height * 0.08)), 54)}
+        d={wavePath}
         fill="none"
         stroke="rgba(255,255,255,.72)"
-        strokeWidth={Math.max(2, Math.min(6, height * 0.08))}
+        strokeWidth={waveStrokeWidth}
         strokeLinecap="round"
       >
         <animateTransform
@@ -415,9 +510,20 @@ function WaterFillRect({
       </path>
     </g>
   )
-}
+}, (previous, next) => (
+  previous.id === next.id &&
+  previous.x === next.x &&
+  previous.y === next.y &&
+  previous.width === next.width &&
+  previous.height === next.height &&
+  previous.ratio === next.ratio &&
+  previous.fill === next.fill &&
+  previous.flowReverse === next.flowReverse &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier
+))
 
-function FloodOverflow({
+/** 맨홀/빗물받이 침수 상태를 물결과 튀는 물방울 animation으로 표시한다. */
+const FloodOverflow = memo(function FloodOverflow({
   x,
   y,
   width,
@@ -464,9 +570,16 @@ function FloodOverflow({
       ))}
     </g>
   )
-}
+}, (previous, next) => (
+  previous.x === next.x &&
+  previous.y === next.y &&
+  previous.width === next.width &&
+  previous.waterKind === next.waterKind &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier
+))
 
-function ObjectRuntimeBadge({
+/** 객체 위에 만관율, 막힘률, 침수 경고를 작은 badge로 표시한다. */
+const ObjectRuntimeBadge = memo(function ObjectRuntimeBadge({
   node,
   state,
   animationSpeedMultiplier,
@@ -515,36 +628,66 @@ function ObjectRuntimeBadge({
       {hasBadgeActivity ? <circle cx="45" cy="3" r="4" fill="#22c55e" /> : null}
     </g>
   )
-}
+}, (previous, next) => (
+  previous.node === next.node &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier &&
+  areRuntimeStatesEquivalent(previous.state, next.state)
+))
 
+/** 월드 좌표계 노드 위치에 runtime badge를 배치하는 래퍼다. */
+const RuntimeBadgeItem = memo(function RuntimeBadgeItem({
+  node,
+  state,
+  animationSpeedMultiplier,
+}: {
+  node: EditorNode
+  state?: RuntimeObjectState
+  animationSpeedMultiplier: number
+}) {
+  return (
+    <g transform={`translate(${node.x} ${node.y})`}>
+      <ObjectRuntimeBadge
+        node={node}
+        state={state}
+        animationSpeedMultiplier={animationSpeedMultiplier}
+      />
+    </g>
+  )
+}, (previous, next) => (
+  previous.node === next.node &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier &&
+  areRuntimeStatesEquivalent(previous.state, next.state)
+))
+
+/** runtime badge 대상 노드 목록을 순회하며 badge 레이어를 렌더링한다. */
 function RuntimeBadgeLayer({
   nodes,
-  snapshot,
+  editorObjects,
   animationSpeedMultiplier,
 }: {
   nodes: EditorNode[]
-  snapshot: SwmmRealtimeSnapshot | null
+  editorObjects: RuntimeEditorObjects | null
   animationSpeedMultiplier: number
 }) {
-  if (!snapshot) {
+  if (!editorObjects) {
     return null
   }
 
   return (
     <g pointerEvents="none">
-      {nodes.filter((node) => !isConnectorNode(node)).map((node) => (
-        <g key={`${node.id}-runtime-badge`} transform={`translate(${node.x} ${node.y})`}>
-          <ObjectRuntimeBadge
-            node={node}
-            state={snapshot.editorObjects[node.id]}
-            animationSpeedMultiplier={animationSpeedMultiplier}
-          />
-        </g>
+      {nodes.map((node) => (
+        <RuntimeBadgeItem
+          key={`${node.id}-runtime-badge`}
+          node={node}
+          state={editorObjects[node.id]}
+          animationSpeedMultiplier={animationSpeedMultiplier}
+        />
       ))}
     </g>
   )
 }
 
+/** 노드 중앙 또는 지정 위치에 객체 이름 라벨을 렌더링한다. */
 function NodeLabel({ node, y }: { node: EditorNode; y?: number }) {
   return (
     <text
@@ -563,6 +706,7 @@ function NodeLabel({ node, y }: { node: EditorNode; y?: number }) {
   )
 }
 
+/** 선택, 막힘, 만관 위험도, 침수 상태를 노드 외곽선으로 강조한다. */
 function RuntimeOutline({ node, state, selected }: { node: EditorNode; state?: RuntimeObjectState; selected: boolean }) {
   if (isConnectorNode(node)) {
     return selected ? (
@@ -655,32 +799,39 @@ function RuntimeOutline({ node, state, selected }: { node: EditorNode; state?: R
 
 function TerrainNode({ node }: { node: EditorNode }) {
   const definition = getNodeTerrainDefinition(node)
-  const columns = Math.ceil(node.width / 260)
-  const rows = Math.ceil(node.height / 44)
+  const terrainWaves = useMemo(() => {
+    const columns = Math.ceil(node.width / 260)
+    const rows = Math.ceil(node.height / 44)
+
+    return Array.from({ length: columns * rows }, (_, index) => {
+      const column = index % columns
+      const row = Math.floor(index / columns)
+      const start = column * 260
+      const baseY = 22 + row * 44
+
+      return {
+        index,
+        path: `M${start} ${baseY} C${start + 36} ${baseY - 14} ${
+          start + 76
+        } ${baseY + 14} ${start + 116} ${baseY} S${
+          start + 204
+        } ${baseY - 14} ${start + 260} ${baseY}`,
+      }
+    })
+  }, [node.height, node.width])
 
   return (
     <>
       <rect x="0" y="0" width={node.width} height={node.height} fill={definition.fill} stroke={definition.stroke} strokeWidth="3" />
-      {Array.from({ length: columns * rows }, (_, index) => {
-        const column = index % columns
-        const row = Math.floor(index / columns)
-        const start = column * 260
-        const baseY = 22 + row * 44
-
-        return (
-          <path
-            key={index}
-            d={`M${start} ${baseY} C${start + 36} ${baseY - 14} ${
-              start + 76
-            } ${baseY + 14} ${start + 116} ${baseY} S${
-              start + 204
-            } ${baseY - 14} ${start + 260} ${baseY}`}
-            fill="none"
-            stroke={definition.waveStroke}
-            strokeWidth="3"
-          />
-        )
-      })}
+      {terrainWaves.map((wave) => (
+        <path
+          key={wave.index}
+          d={wave.path}
+          fill="none"
+          stroke={definition.waveStroke}
+          strokeWidth="3"
+        />
+      ))}
     </>
   )
 }
@@ -688,17 +839,24 @@ function TerrainNode({ node }: { node: EditorNode }) {
 function RoadNode({ node }: { node: EditorNode }) {
   const dashCount = Math.max(3, Math.floor((node.width - 80) / 90))
   const dashSpacing = node.width / (dashCount + 1)
+  const roadDashes = useMemo(() => (
+    Array.from({ length: dashCount }, (_, index) => ({
+      index,
+      x1: (index + 1) * dashSpacing - 16,
+      x2: (index + 1) * dashSpacing + 16,
+    }))
+  ), [dashCount, dashSpacing])
 
   return (
     <>
       <rect x="0" y="0" width={node.width} height={node.height} fill="#111827" stroke="#253244" strokeWidth="4" />
       <line x1="32" y1={node.height / 2} x2={node.width - 32} y2={node.height / 2} stroke="#facc15" strokeWidth="0" />
-      {Array.from({ length: dashCount }, (_, index) => (
+      {roadDashes.map((dash) => (
         <line
-          key={index}
-          x1={(index + 1) * dashSpacing - 16}
+          key={dash.index}
+          x1={dash.x1}
           y1={node.height / 2}
-          x2={(index + 1) * dashSpacing + 16}
+          x2={dash.x2}
           y2={node.height / 2}
           stroke="#facc15"
           strokeWidth="4"
@@ -841,16 +999,15 @@ function PipeFlowArrows({
   const radians = (arrowRotation * Math.PI) / 180
   const translateX = Math.cos(radians) * arrowSpacing
   const translateY = Math.sin(radians) * arrowSpacing
+  const arrowItems = useMemo(
+    () => createPipeFlowArrowItems(orientation, node.width, node.height, arrowCount),
+    [arrowCount, node.height, node.width, orientation],
+  )
 
   return (
     <g clipPath={`url(#${safeSvgId(node.id)}-clip)`} opacity={flowConfig.opacity}>
-      {Array.from({ length: arrowCount }, (_, index) => {
-        const offset = -arrowSpacing + index * arrowSpacing
-        const x = orientation === 'horizontal' ? offset : node.width / 2
-        const y = orientation === 'horizontal' ? node.height / 2 : offset
-
-        return (
-          <g key={index} transform={`translate(${x} ${y})`}>
+      {arrowItems.map((item) => (
+          <g key={item.index} transform={`translate(${item.x} ${item.y})`}>
             {flowConfig.isActive ? (
               <animateTransform
                 attributeName="transform"
@@ -859,7 +1016,7 @@ function PipeFlowArrows({
                 from="0 0"
                 to={`${translateX} ${translateY}`}
                 dur={`${animationDuration(flowConfig.durationSeconds, animationSpeedMultiplier)}s`}
-                begin={`${index * 0.07}s`}
+                begin={`${item.beginSeconds}s`}
                 repeatCount="indefinite"
               />
             ) : null}
@@ -873,8 +1030,7 @@ function PipeFlowArrows({
               strokeLinejoin="round"
             />
           </g>
-        )
-      })}
+      ))}
     </g>
   )
 }
@@ -948,20 +1104,20 @@ function PipeSegmentNode({
   )
 }
 
-function UpstreamPipeExtension({
-  layout,
+const UpstreamPipeExtension = memo(function UpstreamPipeExtension({
   node,
   bounds,
+  hasLeftEndpointRelation,
   state,
   animationSpeedMultiplier,
 }: {
-  layout: EditorLayout
   node: EditorNode
   bounds: ViewBounds
+  hasLeftEndpointRelation: boolean
   state?: RuntimeObjectState
   animationSpeedMultiplier: number
 }) {
-  if (!shouldRenderUpstreamExtension(layout, node, bounds)) {
+  if (!shouldRenderUpstreamExtension(node, bounds, hasLeftEndpointRelation)) {
     return null
   }
 
@@ -982,7 +1138,13 @@ function UpstreamPipeExtension({
       <PipeSegmentNode node={extensionNode} state={state} animationSpeedMultiplier={animationSpeedMultiplier} showLabel={false} />
     </g>
   )
-}
+}, (previous, next) => (
+  previous.node === next.node &&
+  previous.bounds === next.bounds &&
+  previous.hasLeftEndpointRelation === next.hasLeftEndpointRelation &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier &&
+  areRuntimeStatesEquivalent(previous.state, next.state)
+))
 
 function ConnectorCap({
   x,
@@ -1290,6 +1452,7 @@ function FacilityNode({
   )
 }
 
+/** runtime state 중 실제 렌더링에 영향을 주는 값만 비교한다. */
 function areRuntimeStatesEquivalent(first?: RuntimeObjectState, second?: RuntimeObjectState) {
   if (first === second) {
     return true
@@ -1310,6 +1473,7 @@ function areRuntimeStatesEquivalent(first?: RuntimeObjectState, second?: Runtime
   )
 }
 
+/** 노드 유형별 시각 요소와 runtime outline을 렌더링하는 시뮬레이션 노드 단위 컴포넌트다. */
 const SimulationNode = memo(function SimulationNode({
   node,
   state,
@@ -1363,13 +1527,20 @@ const SimulationNode = memo(function SimulationNode({
   areRuntimeStatesEquivalent(previous.state, next.state)
 ))
 
-const RelationGuide = memo(function RelationGuide({ layout, link }: { layout: EditorLayout; link: EditorLink }) {
+/** relation 링크를 희미한 가이드 선으로 표시해 편집 연결 구조를 보여준다. */
+const RelationGuide = memo(function RelationGuide({
+  nodesById,
+  link,
+}: {
+  nodesById: Map<string, EditorNode>
+  link: EditorLink
+}) {
   if (link.type !== 'relation') {
     return null
   }
 
-  const from = getEndpointPoint(layout, link.from, link.to)
-  const to = getEndpointPoint(layout, link.to, link.from)
+  const from = getEndpointPoint(nodesById, link.from, link.to)
+  const to = getEndpointPoint(nodesById, link.to, link.from)
   if (!from || !to) {
     return null
   }
@@ -1387,9 +1558,120 @@ const RelationGuide = memo(function RelationGuide({ layout, link }: { layout: Ed
       pointerEvents="none"
     />
   )
-})
+}, (previous, next) => (
+  previous.nodesById === next.nodesById &&
+  previous.link === next.link
+))
 
-function RainOverlay({
+/** relation guide들을 별도 memo layer로 묶어 runtime tick 때 불필요한 재렌더를 줄인다. */
+const RelationGuideLayer = memo(function RelationGuideLayer({
+  relationLinks,
+  nodesById,
+}: {
+  relationLinks: EditorLink[]
+  nodesById: Map<string, EditorNode>
+}) {
+  return (
+    <>
+      {relationLinks.map((link) => <RelationGuide key={link.id} nodesById={nodesById} link={link} />)}
+    </>
+  )
+}, (previous, next) => (
+  previous.relationLinks === next.relationLinks &&
+  previous.nodesById === next.nodesById
+))
+
+/** 본관/간선 파이프가 화면 왼쪽 밖으로 이어지는 표현을 독립 레이어로 렌더링한다. */
+const UpstreamExtensionLayer = memo(function UpstreamExtensionLayer({
+  nodes,
+  bounds,
+  leftEndpointRelationNodeIds,
+  editorObjects,
+  animationSpeedMultiplier,
+}: {
+  nodes: EditorNode[]
+  bounds: ViewBounds
+  leftEndpointRelationNodeIds: Set<string>
+  editorObjects: RuntimeEditorObjects | null
+  animationSpeedMultiplier: number
+}) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <UpstreamPipeExtension
+          key={`${node.id}-upstream-extension`}
+          node={node}
+          bounds={bounds}
+          hasLeftEndpointRelation={leftEndpointRelationNodeIds.has(node.id)}
+          state={editorObjects?.[node.id]}
+          animationSpeedMultiplier={animationSpeedMultiplier}
+        />
+      ))}
+    </>
+  )
+}, (previous, next) => (
+  previous.nodes === next.nodes &&
+  previous.bounds === next.bounds &&
+  previous.leftEndpointRelationNodeIds === next.leftEndpointRelationNodeIds &&
+  previous.editorObjects === next.editorObjects &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier
+))
+
+/** 시뮬레이션 노드 목록을 runtime state와 막힘 target lookup에 연결해 렌더링한다. */
+const SimulationNodeLayer = memo(function SimulationNodeLayer({
+  nodes,
+  editorObjects,
+  selectedEditorId,
+  selectedPreviewNodeId,
+  blockageTargetByEditorId,
+  animationSpeedMultiplier,
+  onSelectPreviewNode,
+  onSelectBlockageTarget,
+}: {
+  nodes: EditorNode[]
+  editorObjects: RuntimeEditorObjects | null
+  selectedEditorId: string
+  selectedPreviewNodeId?: string
+  blockageTargetByEditorId: Map<string, SimulationBlockageTarget>
+  animationSpeedMultiplier: number
+  onSelectPreviewNode?: (nodeId: string) => void
+  onSelectBlockageTarget: (swmmLinkId: string) => void
+}) {
+  return (
+    <>
+      {nodes.map((node) => {
+        const target = blockageTargetByEditorId.get(node.id)
+        return (
+          <SimulationNode
+            key={node.id}
+            node={node}
+            state={editorObjects?.[node.id]}
+            selected={Boolean(
+              (selectedEditorId && selectedEditorId === node.id)
+              || (selectedPreviewNodeId && selectedPreviewNodeId === node.id),
+            )}
+            targetSwmmId={target?.swmmLinkId}
+            animationSpeedMultiplier={animationSpeedMultiplier}
+            onSelectPreviewNode={onSelectPreviewNode}
+            onSelectBlockageTarget={onSelectBlockageTarget}
+          />
+        )
+      })}
+    </>
+  )
+}, (previous, next) => (
+  previous.nodes === next.nodes &&
+  previous.editorObjects === next.editorObjects &&
+  previous.selectedEditorId === next.selectedEditorId &&
+  previous.selectedPreviewNodeId === next.selectedPreviewNodeId &&
+  previous.blockageTargetByEditorId === next.blockageTargetByEditorId &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier &&
+  previous.onSelectPreviewNode === next.onSelectPreviewNode &&
+  previous.onSelectBlockageTarget === next.onSelectBlockageTarget
+))
+
+/** 강수 비율에 따라 빗방울 animation overlay를 렌더링한다. */
+const RainOverlay = memo(function RainOverlay({
   bounds,
   groundSurfaceY,
   rainfallPercent,
@@ -1400,40 +1682,42 @@ function RainOverlay({
   rainfallPercent: number
   animationSpeedMultiplier: number
 }) {
+  const rainDropItems = useMemo(
+    () => createRainDropItems(bounds, groundSurfaceY),
+    [bounds, groundSurfaceY],
+  )
+
   if (rainfallPercent <= 0) {
     return null
   }
 
-  const dropCount = Math.min(72, Math.max(10, Math.floor(bounds.width / 76)))
-  const topY = bounds.minY + 20
-  const fallDistance = Math.max(140, groundSurfaceY - topY + 80)
   const opacity = Math.max(0.18, Math.min(0.75, rainfallPercent / 100))
 
   return (
     <g opacity={opacity} pointerEvents="none">
-      {Array.from({ length: dropCount }, (_, index) => {
-        const x = bounds.minX + ((index * 61) % Math.max(1, bounds.width))
-        const y = topY + ((index * 37) % 180)
-        const length = 24 + (index % 3) * 7
-
-        return (
-          <line key={index} x1={x} y1={y} x2={x - 8} y2={y + length} stroke="#3b82f6" strokeWidth="3" strokeLinecap="round">
+      {rainDropItems.drops.map((drop) => (
+          <line key={drop.index} x1={drop.x} y1={drop.y} x2={drop.x - 8} y2={drop.y + drop.length} stroke="#3b82f6" strokeWidth="3" strokeLinecap="round">
             <animateTransform
               attributeName="transform"
               type="translate"
               from="0 -80"
-              to={`0 ${fallDistance}`}
-              dur={`${animationDuration(1.15 + (index % 7) * 0.08, animationSpeedMultiplier)}s`}
-              begin={`${(index % 11) * 0.1}s`}
+              to={`0 ${rainDropItems.fallDistance}`}
+              dur={`${animationDuration(drop.durationBaseSeconds, animationSpeedMultiplier)}s`}
+              begin={`${drop.beginSeconds}s`}
               repeatCount="indefinite"
             />
           </line>
-        )
-      })}
+      ))}
     </g>
   )
-}
+}, (previous, next) => (
+  previous.bounds === next.bounds &&
+  previous.groundSurfaceY === next.groundSurfaceY &&
+  previous.rainfallPercent === next.rainfallPercent &&
+  previous.animationSpeedMultiplier === next.animationSpeedMultiplier
+))
 
+/** 저장된 배수도 layout과 runtime snapshot을 SVG 시뮬레이션 화면으로 렌더링한다. */
 export function SimulationLayoutPreview({
   layout,
   snapshot,
@@ -1458,6 +1742,19 @@ export function SimulationLayoutPreview({
   const previewMaxHeight = Math.max(360, Math.min(680, svgHeight * PREVIEW_SCALE))
   const fullscreenZoomPercent = Math.round(fullscreenZoom * 100)
   const selectedEditorId = getSelectedEditorId(selectedBlockageId, blockageTargets)
+  const nodesById = useMemo(() => createNodesById(layout.nodes), [layout.nodes])
+  const relationLinks = useMemo(
+    () => layout.links.filter((link) => link.type === 'relation'),
+    [layout.links],
+  )
+  const leftEndpointRelationNodeIds = useMemo(
+    () => createLeftEndpointRelationNodeIds(relationLinks),
+    [relationLinks],
+  )
+  const blockageTargetByEditorId = useMemo(
+    () => createBlockageTargetByEditorId(blockageTargets),
+    [blockageTargets],
+  )
   const sortedNodes = useMemo(() => {
     const nodeIndex = new Map(layout.nodes.map((node, index) => [node.id, index]))
     return [...layout.nodes].sort((first, second) => {
@@ -1474,6 +1771,10 @@ export function SimulationLayoutPreview({
       return (nodeIndex.get(first.id) ?? 0) - (nodeIndex.get(second.id) ?? 0)
     })
   }, [layout.nodes])
+  const runtimeBadgeNodes = useMemo(
+    () => sortedNodes.filter((node) => !isConnectorNode(node)),
+    [sortedNodes],
+  )
 
   return (
     <div className={isFullscreen
@@ -1587,37 +1888,30 @@ export function SimulationLayoutPreview({
                 skyY={bounds.minY}
                 skyHeight={layout.groundSurfaceY - bounds.minY}
               />
-              {layout.links.map((link) => <RelationGuide key={link.id} layout={layout} link={link} />)}
-              {sortedNodes.map((node) => (
-                <UpstreamPipeExtension
-                  key={`${node.id}-upstream-extension`}
-                  layout={layout}
-                  node={node}
-                  bounds={bounds}
-                  state={snapshot?.editorObjects[node.id]}
-                  animationSpeedMultiplier={animationSpeedMultiplier}
-                />
-              ))}
-              {sortedNodes.map((node) => {
-                const target = getTargetForNode(node.id, blockageTargets)
-                return (
-                  <SimulationNode
-                    key={node.id}
-                    node={node}
-                    state={snapshot?.editorObjects[node.id]}
-                    selected={Boolean(
-                      (selectedEditorId && selectedEditorId === node.id)
-                      || (selectedPreviewNodeId && selectedPreviewNodeId === node.id),
-                    )}
-                    targetSwmmId={target?.swmmLinkId}
-                    animationSpeedMultiplier={animationSpeedMultiplier}
-                    onSelectPreviewNode={onSelectPreviewNode}
-                    onSelectBlockageTarget={onSelectBlockageTarget}
-                  />
-                )
-              })}
+              <RelationGuideLayer relationLinks={relationLinks} nodesById={nodesById} />
+              <UpstreamExtensionLayer
+                nodes={sortedNodes}
+                bounds={bounds}
+                leftEndpointRelationNodeIds={leftEndpointRelationNodeIds}
+                editorObjects={snapshot?.editorObjects ?? null}
+                animationSpeedMultiplier={animationSpeedMultiplier}
+              />
+              <SimulationNodeLayer
+                nodes={sortedNodes}
+                editorObjects={snapshot?.editorObjects ?? null}
+                selectedEditorId={selectedEditorId}
+                selectedPreviewNodeId={selectedPreviewNodeId}
+                blockageTargetByEditorId={blockageTargetByEditorId}
+                animationSpeedMultiplier={animationSpeedMultiplier}
+                onSelectPreviewNode={onSelectPreviewNode}
+                onSelectBlockageTarget={onSelectBlockageTarget}
+              />
               <RainOverlay bounds={bounds} groundSurfaceY={layout.groundSurfaceY} rainfallPercent={rainfallPercent} animationSpeedMultiplier={animationSpeedMultiplier} />
-              <RuntimeBadgeLayer nodes={sortedNodes} snapshot={snapshot} animationSpeedMultiplier={animationSpeedMultiplier} />
+              <RuntimeBadgeLayer
+                nodes={runtimeBadgeNodes}
+                editorObjects={snapshot?.editorObjects ?? null}
+                animationSpeedMultiplier={animationSpeedMultiplier}
+              />
             </svg>
           </div>
         </div>

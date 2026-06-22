@@ -1,9 +1,11 @@
 import type { SwmmScenario } from '../../services/swmm/dto'
 
+/** 시나리오 선택 UI에 표시할 제목과 버전을 한 줄 label로 만든다. */
 function formatScenarioLabel(scenario: SwmmScenario) {
   return `${scenario.title} / v${scenario.version}`
 }
 
+/** 편집모드 하단 시나리오 선택, 생성, 수정, 저장 UI를 렌더링한다. */
 export function EditorScenarioToolbar({
   isDark,
   buttonClassName,

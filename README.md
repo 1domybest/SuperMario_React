@@ -1,84 +1,61 @@
-# SuperMario React
+# SuperMario SWMM React Workbench
 
-도시 배수망을 직접 편집하고, SWMM 기반 실시간 침수/배수 시뮬레이션을 확인하는 React 클라이언트입니다.
+도시 배수도 편집과 SWMM 기반 실시간 시뮬레이션을 하나의 화면에서 다루기 위한 React 작업장입니다.
 
-이 프로젝트의 핵심은 화면에서 만든 배수도 JSON을 백엔드 DTO 계약에 맞게 전달하고, 백엔드가 변환/실행한 SWMM 런타임 결과를 다시 시각적으로 보여주는 것입니다. React는 유량, 유속, 수위, 만관율을 직접 계산하지 않고 SWMM snapshot을 렌더링합니다.
+이 레포는 **프론트엔드 클라이언트**입니다. 사용자는 React 화면에서 배수도 JSON을 편집하고, 시나리오로 저장한 뒤, Django/SWMM 서버에 실행 요청을 보내 1초 tick 단위의 runtime snapshot을 시각화합니다.
 
-## 한눈에 보기
+## 핵심 기능
 
-| 영역 | 역할 |
-| --- | --- |
-| 편집 화면 | 빗물받이, 맨홀, 관로, 펌프장, 우수토실 등 배수 객체 배치와 연결 |
-| 시나리오 | 편집한 배수도 JSON 저장, 불러오기, 갱신 |
-| 변환 검증 | 편집 JSON을 백엔드에 보내 SWMM INP 변환 가능 여부 확인 |
-| 실험 화면 | 강수량, 배속, 객체별 막힘을 조작하며 SWMM 결과 관찰 |
-| 런타임 연결 | HTTP API와 WebSocket으로 엔진 상태와 tick snapshot 수신 |
+- 배수 객체 편집
+  - 지형, 도로, 관로, 커넥터, 맨홀, 빗물받이, 펌프장, 우수토실, 물재생센터, 방류구 배치
+  - 포트 클릭 기반 relation 연결
+  - 객체 이동, 리사이즈, 회전, undo/redo
 
-## UI/UX 플로우
+- 시나리오 관리
+  - 편집한 배수도 JSON을 제목, 설명과 함께 서버 DB에 저장
+  - 저장된 시나리오 목록 조회
+  - 시나리오 선택, 수정, 저장, 초기화
+
+- SWMM 연동
+  - 현재 배수도 JSON을 SWMM 실행 payload로 전달
+  - `stepSeconds: 1` 기준 실시간 엔진 실행
+  - 강수량, 배속, 객체별 막힘 제어
+  - WebSocket snapshot 수신
+
+- 시각화
+  - 편집모드와 시뮬레이션모드 전환
+  - 다크/라이트 테마
+  - 전체화면 시뮬레이션
+  - 선택 객체 highlight
+  - 수위, 만관율, 막힘, 침수 경고 표시
+
+## 현재 시스템 흐름
 
 ```text
-배수도 편집
-  -> 시나리오 저장 또는 불러오기
-  -> SWMM 변환 검증
-  -> 실험 화면 진입
-  -> 엔진 시작
-  -> 강수량 / 막힘 / 배속 조정
-  -> WebSocket snapshot 표시
-  -> 위험 지점과 선택 객체 상태 확인
+React 편집모드
+  -> 배수 객체/관로/연결 관계 편집
+  -> 시나리오 저장 API 호출
+  -> Django DB에 Scenario 저장
+
+React 시뮬레이션모드
+  -> 저장된 시나리오 선택
+  -> /engine/start 로 layout + control 전달
+  -> Django가 SWMM 엔진 세션 시작
+  -> WebSocket /ws/simulation 으로 tick snapshot 수신
+  -> React가 runtime 값을 배수도 위에 렌더링
 ```
 
-### 편집 화면
-
-사용자는 배수 시설과 관망을 배치하고 연결합니다. 각 객체의 `id`, `swmmId`, 포트, 관 종류, 막힘 설정은 이후 SWMM 변환과 런타임 제어 payload의 기준이 됩니다.
-
-### 시나리오 관리
-
-백엔드의 scenario API와 연결되어 현재 편집 layout을 저장하거나 다시 불러올 수 있습니다. React DTO는 백엔드의 `ScenarioCreateRequest`, `ScenarioUpdateRequest`, `ScenarioResponse` 형태를 기준으로 맞춰져 있습니다.
-
-### 실험 화면
-
-실험 화면은 백엔드 SWMM 엔진을 시작하고, `ws/simulation` WebSocket으로 들어오는 snapshot을 화면 객체 단위로 집계해 보여줍니다. 선택한 객체의 SWMM node/link 매핑, 유량, 유속, 차오름, 막힘, 외부 유입을 확인할 수 있습니다.
+React는 유량, 유속, 수위, 만관율을 직접 계산하지 않습니다. 수리 계산의 source of truth는 서버의 SWMM 엔진이며, React는 서버 snapshot을 화면 객체에 매핑해 보여줍니다.
 
 ## 기술 스택
 
-| 계층 | 사용 기술 |
+| 영역 | 기술 |
 | --- | --- |
-| Frontend | React 19, TypeScript, Vite |
-| Styling | Tailwind CSS 4, CSS |
-| Runtime 통신 | Fetch API, WebSocket |
-| DTO 기준 | Django Ninja Schema 기반 백엔드 DTO |
-| 주요 타입 | `src/services/swmm/dto.ts` |
-| 빌드 | TypeScript project build, Vite |
-
-## 백엔드 DTO 기준
-
-React DTO는 백엔드 DTO 이름과 필드 의미를 기준으로 맞춥니다.
-
-| 백엔드 DTO | React 타입 |
-| --- | --- |
-| `EngineStartRequest` | `EngineStartRequest`, `SwmmRuntimeStartRequest` |
-| `EngineResetRequest` | `EngineResetRequest` |
-| `EngineControlRequest` | `EngineControlRequest`, `SwmmEngineControl` |
-| `EngineStatusResponse` | `EngineStatusResponse`, `SwmmEngineStatus` |
-| `EngineStartResponse` | `EngineStartResponse`, `SwmmRuntimeStartResponse` |
-| `EngineControlResponse` | `EngineControlResponse` |
-| `EditorConvertRequest` / `EditorConvertResponse` | `EditorConvertRequest`, `EditorConvertResponse` |
-| `ScenarioCreateRequest` / `ScenarioUpdateRequest` / `ScenarioResponse` | scenario 관련 React 타입 |
-
-타입 정의는 [src/services/swmm/dto.ts](./src/services/swmm/dto.ts)에 모여 있고, 실제 HTTP/WebSocket 호출은 [src/services/swmm/client.ts](./src/services/swmm/client.ts)가 담당합니다. 편집 JSON과 SWMM mapping을 이용해 제어 payload를 만드는 로직은 [src/services/swmm/editorRuntime.ts](./src/services/swmm/editorRuntime.ts)에 있습니다.
-
-## 주요 DTO 필드
-
-| 필드 | 방향 | 의미 |
-| --- | --- | --- |
-| `layout` | React -> Backend | 편집 화면에서 만든 `EditorLayout` JSON |
-| `stepSeconds` | React -> Backend | SWMM runtime step. 기본값은 `1` |
-| `rainfallRatio` | React -> Backend | 현재 런타임 호환용 강수 제어값 |
-| `rainfallPercent` | React -> Backend | 백엔드 DTO에서 허용하는 강수 표시값 |
-| `blockagesById` | React -> Backend | SWMM node/link id별 막힘 값 |
-| `control` | Backend -> React | 강수, 막힘, 최대 강수량, 배속 상태 |
-| `nodes` / `links` | Backend -> React | SWMM node/link별 runtime snapshot |
-| `editorObjects` | Backend -> React | 화면 객체 단위로 집계한 상태 |
+| UI | React 19, TypeScript |
+| Build | Vite 8 |
+| Styling | Tailwind CSS 4 |
+| API 통신 | Fetch API |
+| 실시간 통신 | WebSocket |
 
 ## 실행 방법
 
@@ -88,58 +65,133 @@ React DTO는 백엔드 DTO 이름과 필드 의미를 기준으로 맞춥니다.
 npm install
 ```
 
-### 2. 백엔드 실행
-
-백엔드는 기본적으로 `http://127.0.0.1:8000`을 사용합니다.
+### 2. React 개발 서버 실행
 
 ```bash
-cd /Users/onseoktae/Documents/urban_flooding_monitoring-master/backend
-python3 -m pip install -r requirements.txt
-python3 manage.py runserver 127.0.0.1:8000
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-### 3. React 개발 서버 실행
+브라우저에서 접속:
 
-```bash
-cd /Users/onseoktae/Documents/SuperMario/SuperMario_React
-VITE_SWMM_ENGINE_URL=http://127.0.0.1:8000 npm run dev
+```text
+http://127.0.0.1:5173/
 ```
 
-### 4. 빌드 확인
+### 3. 정적 빌드
 
 ```bash
 npm run build
 ```
 
-## 환경 변수
+### 4. Lint
 
-| 변수 | 기본값 | 설명 |
-| --- | --- | --- |
-| `VITE_SWMM_ENGINE_URL` | `http://127.0.0.1:8000` | SWMM/Django 백엔드 API 주소 |
+```bash
+npm run lint
+```
 
-## 디렉터리 구조
+## 화면 예시
+
+### 시뮬레이션 예시
+
+![시뮬레이션 예시 화면](docs/images/simulation-example.png)
+
+### 편집모드 예시
+
+![편집모드 예시 화면](docs/images/editor-example.png)
+
+### 시뮬레이션 전체화면
+
+![시뮬레이션 전체화면](docs/images/simulation-fullscreen.png)
+
+### 화이트/다크 모드
+
+![화이트/다크 모드 화면](docs/images/light-dark-mode.png)
+
+## 주요 화면
+
+### 편집 모드
+
+배수도 JSON의 원본을 만드는 화면입니다.
+
+- 객체 추가: 캔버스 우클릭 메뉴
+- 연결 생성: 포트 두 개 클릭
+- 위치 편집: 드래그
+- 크기 편집: 파이프/지형/도로 resize handle
+- 시나리오 저장: 제목, 설명, 전체 layout JSON 저장
+- 내보내기: JSON, INP 다운로드
+
+### 시뮬레이션 모드
+
+저장된 시나리오를 SWMM 엔진으로 실행하고 결과를 보는 화면입니다.
+
+- 엔진 시작, 일시정지, 정지
+- 강수량 슬라이더
+- 객체별 막힘 제어
+- runtime tick 표시
+- WebSocket 연결 상태 표시
+- 선택 객체 상세 정보
+- 전체화면 모드
+
+## 백엔드 연결
+
+이 레포에는 백엔드 코드가 포함되어 있지 않습니다. 시나리오 저장, SWMM 엔진 실행, WebSocket tick 수신은 별도 Django/SWMM 서버가 필요합니다.
+
+기본 서버 주소는 `http://127.0.0.1:8000`이며, 환경 변수로 변경할 수 있습니다.
+
+
+```bash
+VITE_SWMM_ENGINE_URL=http://127.0.0.1:8000
+```
+
+백엔드 API 상세 설명은 Django 프로젝트 README에서 관리합니다.
+
+## 프로젝트 구조
 
 ```text
 SuperMario_React/
 ├── src/
+│   ├── App.tsx
 │   ├── components/
-│   │   ├── editor/        # 배수도 편집 UI
-│   │   ├── simulation/    # SWMM 실험/런타임 UI
-│   │   ├── diagram/       # SVG 배수도 구성 요소
-│   │   └── layout/        # workbench layout
-│   ├── data/              # 기본 배수도 JSON
-│   ├── domain/            # 도메인 타입/상수
-│   └── services/swmm/     # DTO, API client, runtime mapping helper
-├── public/
+│   │   ├── layout/          # 편집/시뮬레이션 모드 전환 workbench
+│   │   ├── editor/          # 배수도 편집기
+│   │   ├── simulation/      # 실시간 SWMM 시뮬레이션 화면
+│   │   ├── diagram/         # 공통 SVG 배경/렌더링 helper
+│   │   └── theme/           # 다크/라이트 테마 token
+│   ├── data/
+│   │   └── defaultDrainageLayout.json
+│   ├── domain/
+│   │   └── drainage/
+│   └── services/
+│       └── swmm/            # 서버 DTO, API client, runtime mapping helper
 ├── docs/
+│   ├── react-rendering-refactor-plan.md
+│   └── react-rendering-verification-checklist.md
+├── public/
 ├── package.json
 └── vite.config.ts
 ```
 
-## 개발 시 주의할 점
+## 개발 기준
 
-- 백엔드 DTO를 바꾸면 [src/services/swmm/dto.ts](./src/services/swmm/dto.ts)를 먼저 맞춥니다.
-- React는 SWMM 계산 결과를 직접 만들지 않습니다. 수리 상태는 snapshot의 `nodes`, `links`, `editorObjects`를 기준으로 표시합니다.
-- UI slider 값과 SWMM 정규화 값을 혼동하지 않습니다. 막힘 UI는 0~100 표시값이고, 서버 snapshot의 `blockageRatio`는 0~1 비율입니다.
-- 편집 객체 ID, `swmmId`, runtime mapping의 SWMM node/link ID는 따로 임의 변경하지 않습니다.
-- 백엔드가 없는 상태에서도 편집 화면은 열리지만, 변환 검증과 실험 화면은 API/WebSocket 연결이 필요합니다.
+- `EditorLayout` JSON이 React 편집 화면의 source data입니다.
+- 서버/SWMM snapshot이 시뮬레이션 수리 결과의 source of truth입니다.
+- React에서 SWMM 결과처럼 보이는 유량, 유속, 수위 값을 임의 계산하지 않습니다.
+- `stepSeconds: 1` 실시간 계약을 기본값으로 유지합니다.
+- 막힘 UI는 사용자 조작값이고, 실제 반영 상태는 서버 snapshot의 runtime state로 확인합니다.
+- 편집 객체의 `id`, `swmmId`, 서버 mapping의 SWMM node/link ID를 임의로 분리해서 바꾸지 않습니다.
+
+## 성능 최적화 현황
+
+최근 렌더링 구조화와 성능 개선 작업이 진행되었습니다.
+
+- 편집모드 노드/링크 렌더러 분리
+- 드래그/리사이즈 중 전체 layout 즉시 commit 대신 draft preview 사용
+- pointer up 시점에 최종 layout commit
+- relation 포트 lookup 재계산 범위 축소
+- 시뮬레이션 runtime badge, relation guide, node layer memo 경계 분리
+- 물 흐름, 빗방울, 수위 animation 계산 memoization
+
+자세한 내용:
+
+- [docs/react-rendering-refactor-plan.md](/Users/onseoktae/Documents/SuperMario/SuperMario_React/docs/react-rendering-refactor-plan.md)
+- [docs/react-rendering-verification-checklist.md](/Users/onseoktae/Documents/SuperMario/SuperMario_React/docs/react-rendering-verification-checklist.md)

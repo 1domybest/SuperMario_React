@@ -50,6 +50,7 @@ import {
   type EditorPipeSize,
 } from './editorTypes'
 
+/** 편집 정보 drawer의 모델 요약 숫자 카드를 렌더링한다. */
 export function SummaryCard({ label, value }: { label: string; value: number }) {
   return (
     <div className="editor-summary-card rounded-lg border border-slate-200 bg-white p-3">
@@ -59,6 +60,7 @@ export function SummaryCard({ label, value }: { label: string; value: number }) 
   )
 }
 
+/** 선택된 노드 또는 링크의 속성을 수정하는 편집 패널을 렌더링한다. */
 export function SelectionPanel({
   node,
   link,

@@ -13,6 +13,7 @@ interface SoilBackgroundProps {
 const SOIL_WAVE_WIDTH = 260
 const SOIL_WAVE_HEIGHT = 44
 
+/** 편집/시뮬레이션 화면이 공유하는 하늘, 토지, 토양 물결 배경을 렌더링한다. */
 export function SoilBackground({
   minX,
   topY,

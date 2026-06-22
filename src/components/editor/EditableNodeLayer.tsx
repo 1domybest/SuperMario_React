@@ -8,6 +8,7 @@ const EMPTY_RENDERED_PORT_RELATION_LOOKUP: RenderedPortRelationLookup = new Map(
 
 type EditableNodeLayerProps = {
   nodes: EditorNode[]
+  renderNodesById: Map<string, EditorNode>
   selectedNodeIds: Set<string>
   renderedPortRelationLookupByNodeId: Map<string, RenderedPortRelationLookup>
   connectedPortKeys: Set<string>
@@ -37,8 +38,10 @@ type EditableNodeLayerProps = {
   onResizePointerDown: (node: EditorNode, edge: ResizeEdge, event: ReactPointerEvent<SVGRectElement>) => void
 }
 
+/** 정렬된 노드 목록을 실제 draft 노드 lookup과 합쳐 EditableNode 단위로 렌더링한다. */
 export function EditableNodeLayer({
   nodes,
+  renderNodesById,
   selectedNodeIds,
   renderedPortRelationLookupByNodeId,
   connectedPortKeys,
@@ -60,32 +63,36 @@ export function EditableNodeLayer({
 }: EditableNodeLayerProps) {
   return (
     <g>
-      {nodes.map((node) => (
-        <EditableNode
-          key={node.id}
-          node={node}
-          renderedPortRelationLookup={
-            renderedPortRelationLookupByNodeId.get(node.id) ?? EMPTY_RENDERED_PORT_RELATION_LOOKUP
-          }
-          connectedPortKeys={connectedPortKeys}
-          selectedRelationPortRoles={selectedRelationPortRoles}
-          selectedParentPortKeys={selectedParentPortKeys}
-          pendingPort={pendingPort}
-          attachTargetNodeId={attachTargetNodeId}
-          coordinateEditActive={coordinateEditActive}
-          selected={selectedNodeIds.has(node.id)}
-          getRenderablePorts={getRenderablePorts}
-          getRenderedPortPoint={getRenderedPortPoint}
-          hasManualResizableEdge={hasManualResizableEdge}
-          renderResizeHandles={renderResizeHandles}
-          onPointerDown={onPointerDown}
-          onPointerEnter={onPointerEnter}
-          onNodeContextMenu={onNodeContextMenu}
-          onPortClick={onPortClick}
-          onPortContextMenu={onPortContextMenu}
-          onResizePointerDown={onResizePointerDown}
-        />
-      ))}
+      {nodes.map((node) => {
+        const renderNode = renderNodesById.get(node.id) ?? node
+
+        return (
+          <EditableNode
+            key={node.id}
+            node={renderNode}
+            renderedPortRelationLookup={
+              renderedPortRelationLookupByNodeId.get(node.id) ?? EMPTY_RENDERED_PORT_RELATION_LOOKUP
+            }
+            connectedPortKeys={connectedPortKeys}
+            selectedRelationPortRoles={selectedRelationPortRoles}
+            selectedParentPortKeys={selectedParentPortKeys}
+            pendingPort={pendingPort}
+            attachTargetNodeId={attachTargetNodeId}
+            coordinateEditActive={coordinateEditActive}
+            selected={selectedNodeIds.has(node.id)}
+            getRenderablePorts={getRenderablePorts}
+            getRenderedPortPoint={getRenderedPortPoint}
+            hasManualResizableEdge={hasManualResizableEdge}
+            renderResizeHandles={renderResizeHandles}
+            onPointerDown={onPointerDown}
+            onPointerEnter={onPointerEnter}
+            onNodeContextMenu={onNodeContextMenu}
+            onPortClick={onPortClick}
+            onPortContextMenu={onPortContextMenu}
+            onResizePointerDown={onResizePointerDown}
+          />
+        )
+      })}
     </g>
   )
 }

@@ -81,6 +81,7 @@ const NODE_TYPE_LABELS: Record<string, string> = {
   terrain: '지형',
 }
 
+/** 시뮬레이션 시작 시 localStorage 저장본이 있으면 우선 사용하고 없으면 기본 layout을 사용한다. */
 function loadSavedLayout(): LoadedSimulationLayout {
   const savedLayout = loadEditorLayout()
   if (savedLayout) {
@@ -96,6 +97,7 @@ function loadSavedLayout(): LoadedSimulationLayout {
   }
 }
 
+/** undefined/NaN 값을 대시로 표시하는 숫자 포맷 helper다. */
 function formatNumber(value: number | undefined, digits = 3) {
   if (value === undefined || !Number.isFinite(value)) {
     return '-'
@@ -103,6 +105,7 @@ function formatNumber(value: number | undefined, digits = 3) {
   return value.toFixed(digits)
 }
 
+/** 0~1 비율 값을 소수점 포함 퍼센트 문자열로 표시한다. */
 function formatPrecisePercent(value: number | undefined, digits = 2) {
   if (value === undefined || !Number.isFinite(value)) {
     return '-'
@@ -110,6 +113,7 @@ function formatPrecisePercent(value: number | undefined, digits = 2) {
   return `${(value * 100).toFixed(digits)}%`
 }
 
+/** 현재 시뮬레이션 layout이 어디에서 왔는지 패널에 표시할 문자열로 만든다. */
 function getLayoutSourceLabel(loadedLayout: LoadedSimulationLayout) {
   if (loadedLayout.source === 'scenario') {
     return loadedLayout.scenarioTitle
@@ -119,6 +123,7 @@ function getLayoutSourceLabel(loadedLayout: LoadedSimulationLayout) {
   return loadedLayout.source === 'localStorage' ? 'localStorage' : 'default fallback'
 }
 
+/** 정수 퍼센트와 세부 퍼센트를 함께 표시한다. */
 function formatPercentWithDetail(value: number | undefined) {
   if (value === undefined || !Number.isFinite(value)) {
     return '-'
@@ -126,10 +131,12 @@ function formatPercentWithDetail(value: number | undefined) {
   return `${Math.round(value * 100)}% (${(value * 100).toFixed(2)}%)`
 }
 
+/** editor node type을 한국어 표시명으로 변환한다. */
 function getNodeTypeLabel(type: string) {
   return NODE_TYPE_LABELS[type] ?? type
 }
 
+/** 서버 응답의 알 수 없는 report payload를 화면에서 쓰는 RuntimeReport 형태로 정규화한다. */
 function runtimeReportFromUnknown(value: unknown): RuntimeReport | null {
   if (!isRecordValue(value) || !isRecordValue(value.counts)) {
     return null
@@ -162,6 +169,7 @@ function runtimeReportFromUnknown(value: unknown): RuntimeReport | null {
   }
 }
 
+/** editor object 기준 막힘 값을 SWMM link id 기준 막힘 payload로 합친다. */
 function mergeEditorBlockagesIntoSwmmBlockages(
   manualBlockagesById: Record<string, number>,
   manualBlockagesByEditorId: Record<string, number>,
@@ -188,6 +196,7 @@ function mergeEditorBlockagesIntoSwmmBlockages(
   return next
 }
 
+/** WebSocket으로 들어온 status payload를 기존 status fallback과 합쳐 안정적인 상태 객체로 만든다. */
 function statusFromSocketPayload(payload: Record<string, unknown>, currentStatus: SwmmEngineStatus | null): SwmmEngineStatus {
   const payloadControl = isRecordValue(payload.control) ? payload.control : null
   const fallbackControl = currentStatus?.control ?? {
@@ -229,6 +238,7 @@ function statusFromSocketPayload(payload: Record<string, unknown>, currentStatus
   }
 }
 
+/** 실행 정보 패널의 작은 통계 셀을 렌더링한다. */
 function StatCell({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="runtime-stat-cell rounded-md border border-slate-200 bg-white px-3 py-2">
@@ -238,6 +248,7 @@ function StatCell({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+/** 실시간 SWMM 엔진 제어, 시나리오 선택, runtime snapshot 렌더링을 조립하는 시뮬레이션 화면이다. */
 export function SimulationWorkbench({
   theme = 'light',
   renderHeader,
